@@ -49,7 +49,7 @@ Die API ist eine REST-JSON-API mit Bearer-Token-Authentifizierung. Es gibt eine 
 
 | | |
 |---|---|
-| **Account** | Auf [energuide.de](https://energuide.de) mit einem Tier, der API-Zugriff einschließt. |
+| **Account** | Auf [staging.enerithm.com](https://staging.enerithm.com) mit einem Tier, der API-Zugriff einschließt. |
 | **API-Token** | In der EnerGuide-UI generieren. Format: `egapi_<id>.<secret>`. |
 | **Staging-Host** | `https://api.staging.enerithm.com/api/core/v1` |
 | **Produktiv-Host** | (über Account / Support; gleiche Pfade, anderes Token erforderlich) |
@@ -64,7 +64,7 @@ Als Integrator solltest du dich kurz mit den drei wichtigsten Domänenbegriffen 
 Speichere dein Token sicher als Umgebungsvariable, **niemals im Repo**:
 
 ```bash
-export EG_TOKEN='egapi_d1794358a214c66b.gWkTETFwFKn1LAMfYI1-XZC7ohkIP_zB'
+export EG_TOKEN='egapi_<id>.<secret>'
 ```
 
 ---

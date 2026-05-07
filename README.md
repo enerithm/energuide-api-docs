@@ -56,5 +56,5 @@ Das Skript legt automatisch einen Gebäudepass und ein Projekt an, befüllt die 
 
 ## Kontakt & Support
 
-- Website: [energuide.de](https://energuide.de)
+- Website: [enerithm.com](https://enerithm.de)
 - Fragen zur API: [felix@enerithm.com](mailto:felix@enerithm.com)
