@@ -19,7 +19,7 @@ Die API ermöglicht es, GEG-konforme Energieausweise (Bedarfs- und Verbrauchsaus
 
 ### 1. Token besorgen
 
-Im [EnerGuide-Portal](https://energuide.de) einen API-Token generieren und als Umgebungsvariable setzen:
+Auf der [EnerGuide Plattform](https://staging.enerithm.com) einen API-Token generieren und als Umgebungsvariable setzen:
 
 ```bash
 export EG_TOKEN='egapi_...'
