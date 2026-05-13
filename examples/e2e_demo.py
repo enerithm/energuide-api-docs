@@ -502,6 +502,138 @@ def _draft_is_ready(status: Any) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Bauteil-Management
+# ---------------------------------------------------------------------------
+
+def remove_elements_by_label(pass_id: int, label_pattern: str) -> int:
+    """Entfernt alle Bauteile aus simplified_opaque_element.elements, deren
+    flaechenbezeichnung den angegebenen String enthält (case-insensitiv).
+
+    Hintergrund: Es gibt keinen DELETE-Endpoint für einzelne Bauteile.
+    Der Weg ist: GET → Array filtern → PATCH mit dem vollständigen gefilterten
+    Array (PATCH auf Array-Ebene = Replace, kein Merge).
+
+    Typischer Anwendungsfall: Anbauwand einer Doppelhaushälfte entfernen, die
+    LoD2 fälschlicherweise als Außenwand mitliefert.
+
+        entfernt = remove_elements_by_label(pass_id, "Außenwand 3")
+        # oder nach Muster, z.B. alle Elemente mit "Anbau" im Namen:
+        entfernt = remove_elements_by_label(pass_id, "Anbau")
+
+    Gibt die Anzahl der entfernten Elemente zurück.
+    """
+    body = call("GET", f"/building-passes/{pass_id}/projects")
+    opaque = body["data"]["data"]["steps"].get("simplified_opaque_element", {}) or {}
+    elements = opaque.get("elements", []) or []
+
+    original_count = len(elements)
+    filtered = [
+        el for el in elements
+        if label_pattern.lower() not in (el.get("flaechenbezeichnung") or "").lower()
+    ]
+    removed_count = original_count - len(filtered)
+
+    if removed_count == 0:
+        log.info("    Kein Element mit Label '%s' gefunden — nichts entfernt", label_pattern)
+        return 0
+
+    call("PATCH", f"/building-passes/{pass_id}/projects",
+         json_body={"data": {"steps": {"simplified_opaque_element": {"elements": filtered}}}})
+    log.info("    %d Element(e) mit Label '%s' entfernt (%d → %d Elemente gesamt)",
+             removed_count, label_pattern, original_count, len(filtered))
+    return removed_count
+
+
+def replace_lod2_walls_with_user_values(pass_id: int,
+                                         user_elements: list[dict]) -> None:
+    """Ersetzt alle LoD2-Außenwände durch eigene Messwerte (source='user').
+
+    Workflow für Anbau-Situationen (z.B. Doppelhaushälfte): LoD2 liefert auch
+    die Wand zum Nachbargebäude mit → Wandfläche zu hoch → Energieklasse zu
+    schlecht. Lösung: LoD2-Außenwände entfernen, eigene Werte einfügen.
+
+    Nicht-Außenwand-Elemente (Boden, Tür, Dachflächen im opaque-Step) aus
+    LoD2 werden beibehalten — nur Elemente mit 'Außenwand' im Namen werden
+    ersetzt.
+
+    Beispiel:
+        replace_lod2_walls_with_user_values(pass_id, [
+            {"flaechenbezeichnung": "Außenwand Nord",  "flaeche": "32.10",
+             "ausrichtung": "North"},
+            {"flaechenbezeichnung": "Außenwand Süd",   "flaeche": "32.10",
+             "ausrichtung": "South"},
+            {"flaechenbezeichnung": "Außenwand West",  "flaeche": "24.50",
+             "ausrichtung": "West"},
+            # Anbauwand zum Nachbarn wird NICHT angegeben → entfällt
+        ])
+    """
+    body = call("GET", f"/building-passes/{pass_id}/projects")
+    opaque = body["data"]["data"]["steps"].get("simplified_opaque_element", {}) or {}
+    elements = opaque.get("elements", []) or []
+
+    # Alle LoD2-Außenwände herausfiltern, Rest (Boden, Tür, …) behalten
+    kept = [
+        el for el in elements
+        if not (el.get("source") == "lod2"
+                and "außenwand" in (el.get("flaechenbezeichnung") or "").lower())
+    ]
+    lod2_wall_count = len(elements) - len(kept)
+
+    # Eigene Wände mit source='user' einfügen
+    for el in user_elements:
+        el.setdefault("source", "user")
+    merged = kept + user_elements
+
+    call("PATCH", f"/building-passes/{pass_id}/projects",
+         json_body={"data": {"steps": {"simplified_opaque_element": {"elements": merged}}}})
+    log.info("    %d LoD2-Außenwand/-Wände entfernt, %d eigene eingefügt "
+             "(%d Elemente gesamt)", lod2_wall_count, len(user_elements), len(merged))
+
+
+def add_user_elements(pass_id: int, new_elements: list[dict]) -> None:
+    """Fügt eigene Bauteile (source='user') zu simplified_opaque_element.elements
+    hinzu, ohne vorhandene Elemente zu entfernen.
+
+    Holt den aktuellen Stand per GET, hängt die neuen Elemente an und schickt
+    das vollständige Array per PATCH zurück (Array-PATCH = Replace).
+
+    Beispiel:
+        add_user_elements(pass_id, [
+            {"flaechenbezeichnung": "Erweiterungsbau Süd", "flaeche": "18.00",
+             "ausrichtung": "South", "source": "user"},
+        ])
+    """
+    body = call("GET", f"/building-passes/{pass_id}/projects")
+    opaque = body["data"]["data"]["steps"].get("simplified_opaque_element", {}) or {}
+    elements = opaque.get("elements", []) or []
+
+    for el in new_elements:
+        el.setdefault("source", "user")
+
+    merged = elements + new_elements
+    call("PATCH", f"/building-passes/{pass_id}/projects",
+         json_body={"data": {"steps": {"simplified_opaque_element": {"elements": merged}}}})
+    log.info("    %d eigene(s) Bauteil(e) hinzugefügt (%d Elemente gesamt)",
+             len(new_elements), len(merged))
+
+
+def log_all_elements(pass_id: int) -> None:
+    """Gibt alle Bauteile des Passes tabellarisch aus — nützlich zur Inspektion
+    vor dem manuellen Bereinigen von LoD2-Geometrien."""
+    body = call("GET", f"/building-passes/{pass_id}/projects")
+    elements = (body["data"]["data"]["steps"]
+                .get("simplified_opaque_element", {}).get("elements", []) or [])
+    log.info("    Alle Bauteile (%d):", len(elements))
+    for i, el in enumerate(elements, 1):
+        log.info("      %2d. %-30s | source=%-4s | %s m² | %s",
+                 i,
+                 el.get("flaechenbezeichnung", "?"),
+                 el.get("source", "?"),
+                 el.get("flaeche", "?"),
+                 el.get("ausrichtung", "–"))
+
+
 def step_8_checkout(pass_id: int, cert_type: str = "demand") -> None:
     log.info("=== Schritt 8: Stripe-Checkout-Session erzeugen ===")
     try:
